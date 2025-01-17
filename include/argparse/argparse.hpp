@@ -558,9 +558,10 @@ std::size_t get_levenshtein_distance(const StringType &s1,
   return dp[s1.size()][s2.size()];
 }
 
-template <typename ValueType>
-std::string get_most_similar_string(const std::map<std::string, ValueType> &map,
-                                    const std::string &input) {
+template <typename ValueType, typename Comp>
+std::string
+get_most_similar_string(const std::map<std::string, ValueType, Comp> &map,
+                        const std::string &input) {
   std::string most_similar{};
   std::size_t min_distance = std::numeric_limits<std::size_t>::max();
 
@@ -1642,9 +1643,7 @@ public:
   explicit operator bool() const {
     auto arg_used = std::any_of(m_argument_map.cbegin(), m_argument_map.cend(),
                                 [](auto &it) { return it.second->m_is_used; });
-    auto subparser_used =
-        std::any_of(m_subparser_used.cbegin(), m_subparser_used.cend(),
-                    [](auto &it) { return it.second; });
+    auto subparser_used = m_used_subparser.has_value();
 
     return m_is_parsed && (arg_used || subparser_used);
   }
@@ -1910,14 +1909,26 @@ public:
   /* Getter that returns true if a subcommand is used.
    */
   auto is_subcommand_used(std::string_view subcommand_name) const {
-    return m_subparser_used.at(std::string(subcommand_name));
+    if (!m_used_subparser.has_value())
+      return false;
+
+    auto it = m_subparser_map.find(subcommand_name);
+
+    if (it == m_subparser_map.end()) {
+      throw std::logic_error("Not a subcommand name!");
+    }
+
+    return &m_used_subparser->get() == &*it->second;
   }
 
   /* Getter that returns true if a subcommand is used.
    */
   auto is_subcommand_used(const ArgumentParser &subparser) const {
-    return is_subcommand_used(subparser.m_program_name);
+    return m_used_subparser.has_value() &&
+           &m_used_subparser->get() == &subparser;
   }
+
+  auto get_used_subcommand_parser() const { return m_used_subparser; }
 
   /* Indexing operator. Return a reference to an Argument object
    * Used in conjunction with Argument.operator== e.g., parser["foo"] == true
@@ -2215,7 +2226,6 @@ public:
                                    std::forward<SubparserArgs>(args)...);
     it->m_parser_path = m_program_name + " " + it->m_program_name;
     m_subparser_map.insert_or_assign(it->m_program_name, it);
-    m_subparser_used.insert_or_assign(it->m_program_name, false);
     return *it;
   }
 
@@ -2328,7 +2338,7 @@ protected:
 
             // invoke subparser
             m_is_parsed = true;
-            m_subparser_used[current_argument] = true;
+            m_used_subparser = *subparser_it->second;
             return subparser_it->second->parse_args(unprocessed_arguments);
           }
 
@@ -2444,7 +2454,7 @@ protected:
 
             // invoke subparser
             m_is_parsed = true;
-            m_subparser_used[current_argument] = true;
+            m_used_subparser = *subparser_it->second;
             return subparser_it->second->parse_known_args_internal(
                 unprocessed_arguments);
           }
@@ -2531,8 +2541,8 @@ protected:
   std::map<std::string, argument_it> m_argument_map;
   std::string m_parser_path;
   std::list<ArgumentParser> m_subparsers;
-  std::map<std::string, argument_parser_it> m_subparser_map;
-  std::map<std::string, bool> m_subparser_used;
+  std::map<std::string, argument_parser_it, std::less<>> m_subparser_map;
+  std::optional<std::reference_wrapper<ArgumentParser>> m_used_subparser;
   std::vector<MutuallyExclusiveGroup> m_mutually_exclusive_groups;
   bool m_suppress = false;
   std::size_t m_usage_max_line_width = std::numeric_limits<std::size_t>::max();
