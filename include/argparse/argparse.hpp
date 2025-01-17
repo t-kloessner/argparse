@@ -550,7 +550,7 @@ std::size_t get_levenshtein_distance(const StringType &s1,
       } else if (s1[i - 1] == s2[j - 1]) {
         dp[i][j] = dp[i - 1][j - 1];
       } else {
-        dp[i][j] = 1 + std::min<std::size_t>({dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]});
+        dp[i][j] = 1 + std::min({dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]});
       }
     }
   }
@@ -562,7 +562,7 @@ template <typename ValueType>
 std::string get_most_similar_string(const std::map<std::string, ValueType> &map,
                                     const std::string &input) {
   std::string most_similar{};
-  std::size_t min_distance = (std::numeric_limits<std::size_t>::max)();
+  std::size_t min_distance = std::numeric_limits<std::size_t>::max();
 
   for (const auto &entry : map) {
     std::size_t distance = get_levenshtein_distance(entry.first, input);
@@ -691,9 +691,7 @@ public:
   }
 
   auto &store_into(bool &var) {
-    if ((!m_default_value.has_value()) && (!m_implicit_value.has_value())) {
-      flag();
-    }
+    flag();
     if (m_default_value.has_value()) {
       var = std::any_cast<bool>(m_default_value);
     }
@@ -929,26 +927,24 @@ public:
   }
 
   template <typename Iterator>
-  bool is_value_in_choices(Iterator option_it) const {
+  void find_value_in_choices_or_throw(Iterator it) const {
 
     const auto &choices = m_choices.value();
 
-    return (std::find(choices.begin(), choices.end(), *option_it) !=
-            choices.end());
-  }
+    if (std::find(choices.begin(), choices.end(), *it) == choices.end()) {
+      // provided arg not in list of allowed choices
+      // report error
 
-  template <typename Iterator>
-  void throw_invalid_arguments_error(Iterator option_it) const {
-    const auto &choices = m_choices.value();
-    const std::string choices_as_csv = std::accumulate(
-        choices.begin(), choices.end(), std::string(),
-        [](const std::string &option_a, const std::string &option_b) {
-          return option_a + (option_a.empty() ? "" : ", ") + option_b;
-        });
+      std::string choices_as_csv =
+          std::accumulate(choices.begin(), choices.end(), std::string(),
+                          [](const std::string &a, const std::string &b) {
+                            return a + (a.empty() ? "" : ", ") + b;
+                          });
 
-    throw std::runtime_error(std::string{"Invalid argument "} +
-                             details::repr(*option_it) +
-                             " - allowed options: {" + choices_as_csv + "}");
+      throw std::runtime_error(std::string{"Invalid argument "} +
+                               details::repr(*it) + " - allowed options: {" +
+                               choices_as_csv + "}");
+    }
   }
 
   /* The dry_run parameter can be set to true to avoid running the actions,
@@ -964,30 +960,21 @@ public:
     }
     m_used_name = used_name;
 
-    std::size_t passed_options = 0;
-
     if (m_choices.has_value()) {
       // Check each value in (start, end) and make sure
       // it is in the list of allowed choices/options
-      const auto max_number_of_args = m_num_args_range.get_max();
-      const auto min_number_of_args = m_num_args_range.get_min();
+      std::size_t i = 0;
+      auto max_number_of_args = m_num_args_range.get_max();
       for (auto it = start; it != end; ++it) {
-        if (is_value_in_choices(it)) {
-          passed_options += 1;
-          continue;
-        }
-
-        if ((passed_options >= min_number_of_args) &&
-            (passed_options <= max_number_of_args)) {
+        if (i == max_number_of_args) {
           break;
         }
-
-        throw_invalid_arguments_error(it);
+        find_value_in_choices_or_throw(it);
+        i += 1;
       }
     }
 
-    const auto num_args_max =
-        (m_choices.has_value()) ? passed_options : m_num_args_range.get_max();
+    const auto num_args_max = m_num_args_range.get_max();
     const auto num_args_min = m_num_args_range.get_min();
     std::size_t dist = 0;
     if (num_args_max == 0) {
@@ -1014,6 +1001,7 @@ public:
                                    std::string(m_used_name) + "'.");
         }
       }
+
       struct ActionApply {
         void operator()(valued_action &f) {
           std::transform(first, last, std::back_inserter(self.m_values), f);
@@ -1790,7 +1778,7 @@ public:
       std::string str_name(name);
       auto subparser_it = m_subparser_map.find(str_name);
       if (subparser_it != m_subparser_map.end()) {
-        return subparser_it->second->get();
+        return subparser_it->second;
       }
       throw std::logic_error("No such subparser: " + str_name);
     }
@@ -2015,7 +2003,7 @@ public:
 
     bool has_visible_subcommands = std::any_of(
         parser.m_subparser_map.begin(), parser.m_subparser_map.end(),
-        [](auto &p) { return !p.second->get().m_suppress; });
+        [](auto &p) { return !p.second->m_suppress; });
 
     if (has_visible_subcommands) {
       stream << (parser.m_positional_arguments.empty()
@@ -2023,14 +2011,14 @@ public:
                      : "\n")
              << "Subcommands:\n";
       for (const auto &[command, subparser] : parser.m_subparser_map) {
-        if (subparser->get().m_suppress) {
+        if (subparser->m_suppress) {
           continue;
         }
 
         stream << std::setw(2) << " ";
         stream << std::setw(static_cast<int>(longest_arg_length - 2))
                << command;
-        stream << " " << subparser->get().m_description << "\n";
+        stream << " " << subparser->m_description << "\n";
       }
     }
 
@@ -2067,9 +2055,9 @@ public:
     std::stringstream stream;
 
     std::string curline("Usage: ");
-    curline += this->m_parser_path;
+    curline += this->m_program_name;
     const bool multiline_usage =
-        this->m_usage_max_line_width < (std::numeric_limits<std::size_t>::max)();
+        this->m_usage_max_line_width < std::numeric_limits<std::size_t>::max();
     const size_t indent_size = curline.size();
 
     const auto deal_with_options_of_group = [&](std::size_t group_idx) {
@@ -2195,7 +2183,7 @@ public:
       stream << " {";
       std::size_t i{0};
       for (const auto &[command, subparser] : m_subparser_map) {
-        if (subparser->get().m_suppress) {
+        if (subparser->m_suppress) {
           continue;
         }
 
@@ -2221,11 +2209,14 @@ public:
     return out.str();
   }
 
-  void add_subparser(ArgumentParser &parser) {
-    parser.m_parser_path = m_program_name + " " + parser.m_program_name;
-    auto it = m_subparsers.emplace(std::cend(m_subparsers), parser);
-    m_subparser_map.insert_or_assign(parser.m_program_name, it);
-    m_subparser_used.insert_or_assign(parser.m_program_name, false);
+  template <typename... SubparserArgs>
+  ArgumentParser &emplace_subparser(SubparserArgs &&...args) {
+    auto it = m_subparsers.emplace(std::cend(m_subparsers),
+                                   std::forward<SubparserArgs>(args)...);
+    it->m_parser_path = m_program_name + " " + it->m_program_name;
+    m_subparser_map.insert_or_assign(it->m_program_name, it);
+    m_subparser_used.insert_or_assign(it->m_program_name, false);
+    return *it;
   }
 
   void set_suppress(bool suppress) { m_suppress = suppress; }
@@ -2256,7 +2247,7 @@ protected:
   preprocess_arguments(const std::vector<std::string> &raw_arguments) const {
     std::vector<std::string> arguments{};
     for (const auto &arg : raw_arguments) {
-      
+
       const auto argument_starts_with_prefix_chars =
           [this](const std::string &a) -> bool {
         if (!a.empty()) {
@@ -2338,8 +2329,7 @@ protected:
             // invoke subparser
             m_is_parsed = true;
             m_subparser_used[current_argument] = true;
-            return subparser_it->second->get().parse_args(
-                unprocessed_arguments);
+            return subparser_it->second->parse_args(unprocessed_arguments);
           }
 
           if (m_positional_arguments.empty()) {
@@ -2455,7 +2445,7 @@ protected:
             // invoke subparser
             m_is_parsed = true;
             m_subparser_used[current_argument] = true;
-            return subparser_it->second->get().parse_known_args_internal(
+            return subparser_it->second->parse_known_args_internal(
                 unprocessed_arguments);
           }
 
@@ -2520,8 +2510,7 @@ protected:
 
   using argument_it = std::list<Argument>::iterator;
   using mutex_group_it = std::vector<MutuallyExclusiveGroup>::iterator;
-  using argument_parser_it =
-      std::list<std::reference_wrapper<ArgumentParser>>::iterator;
+  using argument_parser_it = std::list<ArgumentParser>::iterator;
 
   void index_argument(argument_it it) {
     for (const auto &name : std::as_const(it->m_names)) {
@@ -2541,12 +2530,12 @@ protected:
   std::list<Argument> m_optional_arguments;
   std::map<std::string, argument_it> m_argument_map;
   std::string m_parser_path;
-  std::list<std::reference_wrapper<ArgumentParser>> m_subparsers;
+  std::list<ArgumentParser> m_subparsers;
   std::map<std::string, argument_parser_it> m_subparser_map;
   std::map<std::string, bool> m_subparser_used;
   std::vector<MutuallyExclusiveGroup> m_mutually_exclusive_groups;
   bool m_suppress = false;
-  std::size_t m_usage_max_line_width = (std::numeric_limits<std::size_t>::max)();
+  std::size_t m_usage_max_line_width = std::numeric_limits<std::size_t>::max();
   bool m_usage_break_on_mutex = false;
   int m_usage_newline_counter = 0;
   std::vector<std::string> m_group_names;
