@@ -38,6 +38,7 @@ SOFTWARE.
 #include <array>
 #include <charconv>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -237,12 +238,23 @@ consume_hex_prefix(std::string_view s) -> ConsumeHexPrefixResult {
 }
 
 template <class T, auto Param>
-inline auto do_from_chars(std::string_view s) -> T {
+inline auto do_from_chars(std::string_view s, T lower_bound,
+                          T upper_bound) -> T {
   T x{0};
   auto [first, last] = pointer_range(s);
   auto [ptr, ec] = std::from_chars(first, last, x, Param);
   if (ec == std::errc()) {
     if (ptr == last) {
+      if (x < lower_bound) {
+        throw std::domain_error("Value '" + std::string(s) +
+                                "' is lower than " +
+                                std::to_string(lower_bound));
+      } else if (x > upper_bound) {
+        throw std::domain_error("Value '" + std::string(s) +
+                                "' is greater than " +
+                                std::to_string(upper_bound));
+      }
+
       return x;
     }
     throw std::invalid_argument{"pattern '" + std::string(s) +
@@ -258,26 +270,47 @@ inline auto do_from_chars(std::string_view s) -> T {
 }
 
 template <class T, auto Param = 0> struct parse_number {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string_view s) -> T {
-    return do_from_chars<T, Param>(s);
+    return do_from_chars<T, Param>(s, lower_bound, upper_bound);
   }
 };
 
 template <class T> struct parse_number<T, radix_2> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string_view s) -> T {
     if (auto [ok, rest] = consume_binary_prefix(s); ok) {
-      return do_from_chars<T, radix_2>(rest);
+      return do_from_chars<T, radix_2>(rest, lower_bound, upper_bound);
     }
     throw std::invalid_argument{"pattern not found"};
   }
 };
 
 template <class T> struct parse_number<T, radix_16> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string_view s) -> T {
     if (starts_with("0x"sv, s) || starts_with("0X"sv, s)) {
       if (auto [ok, rest] = consume_hex_prefix(s); ok) {
         try {
-          return do_from_chars<T, radix_16>(rest);
+          return do_from_chars<T, radix_16>(rest, lower_bound, upper_bound);
         } catch (const std::invalid_argument &err) {
           throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                       "' as hexadecimal: " + err.what());
@@ -290,7 +323,7 @@ template <class T> struct parse_number<T, radix_16> {
       // Allow passing hex numbers without prefix
       // Shape 'x' already has to be specified
       try {
-        return do_from_chars<T, radix_16>(s);
+        return do_from_chars<T, radix_16>(s, lower_bound, upper_bound);
       } catch (const std::invalid_argument &err) {
         throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                     "' as hexadecimal: " + err.what());
@@ -306,11 +339,18 @@ template <class T> struct parse_number<T, radix_16> {
 };
 
 template <class T> struct parse_number<T> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string_view s) -> T {
     auto [ok, rest] = consume_hex_prefix(s);
     if (ok) {
       try {
-        return do_from_chars<T, radix_16>(rest);
+        return do_from_chars<T, radix_16>(rest, lower_bound, upper_bound);
       } catch (const std::invalid_argument &err) {
         throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                     "' as hexadecimal: " + err.what());
@@ -323,7 +363,7 @@ template <class T> struct parse_number<T> {
     auto [ok_binary, rest_binary] = consume_binary_prefix(s);
     if (ok_binary) {
       try {
-        return do_from_chars<T, radix_2>(rest_binary);
+        return do_from_chars<T, radix_2>(rest_binary, lower_bound, upper_bound);
       } catch (const std::invalid_argument &err) {
         throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                     "' as binary: " + err.what());
@@ -335,7 +375,7 @@ template <class T> struct parse_number<T> {
 
     if (starts_with("0"sv, s)) {
       try {
-        return do_from_chars<T, radix_8>(rest);
+        return do_from_chars<T, radix_8>(rest, lower_bound, upper_bound);
       } catch (const std::invalid_argument &err) {
         throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                     "' as octal: " + err.what());
@@ -346,7 +386,7 @@ template <class T> struct parse_number<T> {
     }
 
     try {
-      return do_from_chars<T, radix_10>(rest);
+      return do_from_chars<T, radix_10>(rest, lower_bound, upper_bound);
     } catch (const std::invalid_argument &err) {
       throw std::invalid_argument("Failed to parse '" + std::string(s) +
                                   "' as decimal integer: " + err.what());
@@ -367,7 +407,10 @@ inline const auto generic_strtod<long double> = ARGPARSE_CUSTOM_STRTOLD;
 
 } // namespace
 
-template <class T> inline auto do_strtod(std::string const &s) -> T {
+template <class T>
+inline auto do_strtod(std::string const &s,
+                      T lower_bound = std::numeric_limits<T>::min(),
+                      T upper_bound = std::numeric_limits<T>::max()) -> T {
   if (isspace(static_cast<unsigned char>(s[0])) || s[0] == '+') {
     throw std::invalid_argument{"pattern '" + s + "' not found"};
   }
@@ -379,6 +422,16 @@ template <class T> inline auto do_strtod(std::string const &s) -> T {
   auto x = generic_strtod<T>(first, &ptr);
   if (errno == 0) {
     if (ptr == last) {
+      if (x < lower_bound) {
+        throw std::domain_error("Value '" + std::string(s) +
+                                "' is lower than " +
+                                std::to_string(lower_bound));
+      } else if (x > upper_bound) {
+        throw std::domain_error("Value '" + std::string(s) +
+                                "' is greater than " +
+                                std::to_string(upper_bound));
+      }
+
       return x;
     }
     throw std::invalid_argument{"pattern '" + s +
@@ -391,6 +444,13 @@ template <class T> inline auto do_strtod(std::string const &s) -> T {
 }
 
 template <class T> struct parse_number<T, chars_format::general> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string const &s) -> T {
     if (auto r = consume_hex_prefix(s); r.is_hexadecimal) {
       throw std::invalid_argument{
@@ -414,6 +474,13 @@ template <class T> struct parse_number<T, chars_format::general> {
 };
 
 template <class T> struct parse_number<T, chars_format::hex> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string const &s) -> T {
     if (auto r = consume_hex_prefix(s); !r.is_hexadecimal) {
       throw std::invalid_argument{"chars_format::hex parses hexfloat"};
@@ -435,6 +502,13 @@ template <class T> struct parse_number<T, chars_format::hex> {
 };
 
 template <class T> struct parse_number<T, chars_format::binary> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string const &s) -> T {
     if (auto r = consume_hex_prefix(s); r.is_hexadecimal) {
       throw std::invalid_argument{
@@ -449,6 +523,13 @@ template <class T> struct parse_number<T, chars_format::binary> {
 };
 
 template <class T> struct parse_number<T, chars_format::scientific> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string const &s) -> T {
     if (auto r = consume_hex_prefix(s); r.is_hexadecimal) {
       throw std::invalid_argument{
@@ -476,6 +557,13 @@ template <class T> struct parse_number<T, chars_format::scientific> {
 };
 
 template <class T> struct parse_number<T, chars_format::fixed> {
+  T lower_bound;
+  T upper_bound;
+
+  parse_number(T lower_bound = std::numeric_limits<T>::min(),
+               T upper_bound = std::numeric_limits<T>::max())
+      : lower_bound(lower_bound), upper_bound(upper_bound) {}
+
   auto operator()(std::string const &s) -> T {
     if (auto r = consume_hex_prefix(s); r.is_hexadecimal) {
       throw std::invalid_argument{
@@ -797,8 +885,23 @@ public:
     return *this;
   }
 
+  auto &filepath() {
+    action([](const auto &path) {
+      if (!std::filesystem::exists(path)) {
+        throw std::invalid_argument("'" + path +
+                                    "' is not a path to an existing file.");
+      }
+
+      return path;
+    });
+
+    return *this;
+  }
+
   template <char Shape, typename T>
-  auto scan() -> std::enable_if_t<std::is_arithmetic_v<T>, Argument &> {
+  auto scan(T lower_bound = std::numeric_limits<T>::min(),
+            T upper_bound = std::numeric_limits<T>::max())
+      -> std::enable_if_t<std::is_arithmetic_v<T>, Argument &> {
     static_assert(!(std::is_const_v<T> || std::is_volatile_v<T>),
                   "T should not be cv-qualified");
     auto is_one_of = [](char c, auto... x) constexpr {
@@ -806,34 +909,43 @@ public:
     };
 
     if constexpr (is_one_of(Shape, 'd') && details::standard_integer<T>) {
-      action(details::parse_number<T, details::radix_10>());
+      action(details::parse_number<T, details::radix_10>{lower_bound,
+                                                         upper_bound});
     } else if constexpr (is_one_of(Shape, 'i') &&
                          details::standard_integer<T>) {
-      action(details::parse_number<T>());
+      action(details::parse_number<T>{lower_bound, upper_bound});
     } else if constexpr (is_one_of(Shape, 'u') &&
                          details::standard_unsigned_integer<T>) {
-      action(details::parse_number<T, details::radix_10>());
+      action(details::parse_number<T, details::radix_10>{lower_bound,
+                                                         upper_bound});
     } else if constexpr (is_one_of(Shape, 'b') &&
                          details::standard_unsigned_integer<T>) {
-      action(details::parse_number<T, details::radix_2>());
+      action(
+          details::parse_number<T, details::radix_2>{lower_bound, upper_bound});
     } else if constexpr (is_one_of(Shape, 'o') &&
                          details::standard_unsigned_integer<T>) {
-      action(details::parse_number<T, details::radix_8>());
+      action(
+          details::parse_number<T, details::radix_8>{lower_bound, upper_bound});
     } else if constexpr (is_one_of(Shape, 'x', 'X') &&
                          details::standard_unsigned_integer<T>) {
-      action(details::parse_number<T, details::radix_16>());
+      action(details::parse_number<T, details::radix_16>{lower_bound,
+                                                         upper_bound});
     } else if constexpr (is_one_of(Shape, 'a', 'A') &&
                          std::is_floating_point_v<T>) {
-      action(details::parse_number<T, details::chars_format::hex>());
+      action(details::parse_number<T, details::chars_format::hex>{lower_bound,
+                                                                  upper_bound});
     } else if constexpr (is_one_of(Shape, 'e', 'E') &&
                          std::is_floating_point_v<T>) {
-      action(details::parse_number<T, details::chars_format::scientific>());
+      action(details::parse_number<T, details::chars_format::scientific>{
+          lower_bound, upper_bound});
     } else if constexpr (is_one_of(Shape, 'f', 'F') &&
                          std::is_floating_point_v<T>) {
-      action(details::parse_number<T, details::chars_format::fixed>());
+      action(details::parse_number<T, details::chars_format::fixed>{
+          lower_bound, upper_bound});
     } else if constexpr (is_one_of(Shape, 'g', 'G') &&
                          std::is_floating_point_v<T>) {
-      action(details::parse_number<T, details::chars_format::general>());
+      action(details::parse_number<T, details::chars_format::general>(
+          lower_bound, upper_bound));
     } else {
       static_assert(alignof(T) == 0, "No scan specification for T");
     }
@@ -1023,7 +1135,25 @@ public:
         Argument &self;
       };
       if (!dry_run) {
-        std::visit(ActionApply{start, end, *this}, m_action);
+        auto get_error = [&](const std::exception &e) {
+          if (m_used_name.empty()) {
+            return "Error while reading positional argument '" +
+                   std::string(this->m_names.front()) + "': " + e.what();
+          }
+
+          return "Error while reading argument '" + std::string(m_used_name) +
+                 "': " + e.what();
+        };
+
+        try {
+          std::visit(ActionApply{start, end, *this}, m_action);
+        } catch (const std::invalid_argument &e) {
+          throw std::invalid_argument(get_error(e));
+        } catch (const std::range_error &e) {
+          throw std::range_error(get_error(e));
+        } catch (const std::domain_error &e) {
+          throw std::domain_error(get_error(e));
+        }
         m_is_used = true;
       }
       return end;
