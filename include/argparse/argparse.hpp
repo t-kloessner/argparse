@@ -36,7 +36,6 @@ SOFTWARE.
 #include <algorithm>
 #include <any>
 #include <array>
-#include <set>
 #include <charconv>
 #include <cstdlib>
 #include <functional>
@@ -48,6 +47,7 @@ SOFTWARE.
 #include <map>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -210,8 +210,8 @@ struct ConsumeBinaryPrefixResult {
   std::string_view rest;
 };
 
-constexpr auto consume_binary_prefix(std::string_view s)
-    -> ConsumeBinaryPrefixResult {
+constexpr auto
+consume_binary_prefix(std::string_view s) -> ConsumeBinaryPrefixResult {
   if (starts_with(std::string_view{"0b"}, s) ||
       starts_with(std::string_view{"0B"}, s)) {
     s.remove_prefix(2);
@@ -227,8 +227,8 @@ struct ConsumeHexPrefixResult {
 
 using namespace std::literals;
 
-constexpr auto consume_hex_prefix(std::string_view s)
-    -> ConsumeHexPrefixResult {
+constexpr auto
+consume_hex_prefix(std::string_view s) -> ConsumeHexPrefixResult {
   if (starts_with("0x"sv, s) || starts_with("0X"sv, s)) {
     s.remove_prefix(2);
     return {true, s};
@@ -519,8 +519,8 @@ std::string join(StrIt first, StrIt last, const std::string &separator) {
 
 template <typename T> struct can_invoke_to_string {
   template <typename U>
-  static auto test(int)
-      -> decltype(std::to_string(std::declval<U>()), std::true_type{});
+  static auto test(int) -> decltype(std::to_string(std::declval<U>()),
+                                    std::true_type{});
 
   template <typename U> static auto test(...) -> std::false_type;
 
@@ -598,8 +598,8 @@ class ArgumentParser;
 
 class Argument {
   friend class ArgumentParser;
-  friend auto operator<<(std::ostream &stream, const ArgumentParser &parser)
-      -> std::ostream &;
+  friend auto operator<<(std::ostream &stream,
+                         const ArgumentParser &parser) -> std::ostream &;
 
   template <std::size_t N, std::size_t... I>
   explicit Argument(std::string_view prefix_chars,
@@ -672,7 +672,7 @@ public:
   }
 
   template <class F, class... Args>
-  auto action(F &&callable, Args &&... bound_args)
+  auto action(F &&callable, Args &&...bound_args)
       -> std::enable_if_t<std::is_invocable_v<F, Args..., std::string const>,
                           Argument &> {
     using action_type = std::conditional_t<
@@ -700,7 +700,8 @@ public:
     return *this;
   }
 
-  template <typename T, typename std::enable_if<std::is_integral<T>::value>::type * = nullptr>
+  template <typename T, typename std::enable_if<
+                            std::is_integral<T>::value>::type * = nullptr>
   auto &store_into(T &var) {
     if (m_default_value.has_value()) {
       var = std::any_cast<T>(m_default_value);
@@ -898,7 +899,7 @@ public:
   }
 
   template <typename T, typename... U>
-  Argument &choices(T &&first, U &&... rest) {
+  Argument &choices(T &&first, U &&...rest) {
     add_choice(std::forward<T>(first));
     choices(std::forward<U>(rest)...);
     return *this;
@@ -1159,10 +1160,10 @@ public:
       if (!argument.m_metavar.empty() &&
           argument.m_num_args_range == NArgsRange{1, 1}) {
         name_stream << " " << argument.m_metavar;
-      }
-      else if (!argument.m_metavar.empty() &&
-               argument.m_num_args_range.get_min() == argument.m_num_args_range.get_max() &&
-               argument.m_metavar.find("> <") != std::string::npos) {
+      } else if (!argument.m_metavar.empty() &&
+                 argument.m_num_args_range.get_min() ==
+                     argument.m_num_args_range.get_max() &&
+                 argument.m_metavar.find("> <") != std::string::npos) {
         name_stream << " " << argument.m_metavar;
       }
     }
@@ -1257,8 +1258,7 @@ public:
     if (first == eof) {
       return true;
     }
-    if (prefix_chars.find(static_cast<char>(first)) !=
-                          std::string_view::npos) {
+    if (prefix_chars.find(static_cast<char>(first)) != std::string_view::npos) {
       name.remove_prefix(1);
       if (name.empty()) {
         return true;
@@ -1296,8 +1296,8 @@ private:
     std::size_t get_max() const { return m_max; }
 
     // Print help message
-    friend auto operator<<(std::ostream &stream, const NArgsRange &range)
-        -> std::ostream & {
+    friend auto operator<<(std::ostream &stream,
+                           const NArgsRange &range) -> std::ostream & {
       if (range.m_min == range.m_max) {
         if (range.m_min != 0 && range.m_min != 1) {
           stream << "[nargs: " << range.m_min << "] ";
@@ -1591,6 +1591,8 @@ private:
 };
 
 class ArgumentParser {
+  using SubCommandMain = std::function<int(argparse::ArgumentParser &)>;
+
 public:
   explicit ArgumentParser(std::string program_name = {},
                           std::string version = "1.0",
@@ -1710,7 +1712,7 @@ public:
   // Parameter packed add_parents method
   // Accepts a variadic number of ArgumentParser objects
   template <typename... Targs>
-  ArgumentParser &add_parents(const Targs &... f_args) {
+  ArgumentParser &add_parents(const Targs &...f_args) {
     for (const ArgumentParser &parent_parser : {std::ref(f_args)...}) {
       for (const auto &argument : parent_parser.m_positional_arguments) {
         auto it = m_positional_arguments.insert(
@@ -1832,9 +1834,11 @@ public:
         for (Argument *arg : group.m_elements) {
           if (i + 1 == size) {
             // last
-            argument_names += std::string("'") + arg->get_usage_full() + std::string("' ");
+            argument_names +=
+                std::string("'") + arg->get_usage_full() + std::string("' ");
           } else {
-            argument_names += std::string("'") + arg->get_usage_full() + std::string("' or ");
+            argument_names +=
+                std::string("'") + arg->get_usage_full() + std::string("' or ");
           }
           i += 1;
         }
@@ -1919,17 +1923,17 @@ public:
       throw std::logic_error("Not a subcommand name!");
     }
 
-    return &m_used_subparser->get() == &*it->second;
+    return &m_used_subparser->get().first == &it->second->first;
   }
 
   /* Getter that returns true if a subcommand is used.
    */
   auto is_subcommand_used(const ArgumentParser &subparser) const {
     return m_used_subparser.has_value() &&
-           &m_used_subparser->get() == &subparser;
+           &m_used_subparser->get().first == &subparser;
   }
 
-  auto get_used_subcommand_parser() const { return m_used_subparser; }
+  auto get_used_subcommand() const { return m_used_subparser; }
 
   /* Indexing operator. Return a reference to an Argument object
    * Used in conjunction with Argument.operator== e.g., parser["foo"] == true
@@ -1962,8 +1966,8 @@ public:
   }
 
   // Print help message
-  friend auto operator<<(std::ostream &stream, const ArgumentParser &parser)
-      -> std::ostream & {
+  friend auto operator<<(std::ostream &stream,
+                         const ArgumentParser &parser) -> std::ostream & {
     stream.setf(std::ios_base::left);
 
     auto longest_arg_length = parser.get_length_of_longest_argument();
@@ -1974,12 +1978,12 @@ public:
       stream << parser.m_description << "\n\n";
     }
 
-    const bool has_visible_positional_args = std::find_if(
-      parser.m_positional_arguments.begin(),
-      parser.m_positional_arguments.end(),
-      [](const auto &argument) {
-      return !argument.m_is_hidden; }) !=
-      parser.m_positional_arguments.end();
+    const bool has_visible_positional_args =
+        std::find_if(parser.m_positional_arguments.begin(),
+                     parser.m_positional_arguments.end(),
+                     [](const auto &argument) {
+                       return !argument.m_is_hidden;
+                     }) != parser.m_positional_arguments.end();
     if (has_visible_positional_args) {
       stream << "Positional arguments:\n";
     }
@@ -2015,7 +2019,7 @@ public:
 
     bool has_visible_subcommands = std::any_of(
         parser.m_subparser_map.begin(), parser.m_subparser_map.end(),
-        [](auto &p) { return !p.second->m_suppress; });
+        [](auto &p) { return !p.second->first.m_suppress; });
 
     if (has_visible_subcommands) {
       stream << (parser.m_positional_arguments.empty()
@@ -2023,14 +2027,14 @@ public:
                      : "\n")
              << "Subcommands:\n";
       for (const auto &[command, subparser] : parser.m_subparser_map) {
-        if (subparser->m_suppress) {
+        if (subparser->first.m_suppress) {
           continue;
         }
 
         stream << std::setw(2) << " ";
         stream << std::setw(static_cast<int>(longest_arg_length - 2))
                << command;
-        stream << " " << subparser->m_description << "\n";
+        stream << " " << subparser->first.m_description << "\n";
       }
     }
 
@@ -2195,7 +2199,7 @@ public:
       stream << " {";
       std::size_t i{0};
       for (const auto &[command, subparser] : m_subparser_map) {
-        if (subparser->m_suppress) {
+        if (subparser->first.m_suppress) {
           continue;
         }
 
@@ -2222,12 +2226,15 @@ public:
   }
 
   template <typename... SubparserArgs>
-  ArgumentParser &emplace_subparser(SubparserArgs &&...args) {
-    auto it = m_subparsers.emplace(std::cend(m_subparsers),
-                                   std::forward<SubparserArgs>(args)...);
-    it->m_parser_path = m_program_name + " " + it->m_program_name;
-    m_subparser_map.insert_or_assign(it->m_program_name, it);
-    return *it;
+  ArgumentParser &emplace_subparser(std::tuple<SubparserArgs...> args,
+                                    SubCommandMain subcommand_main) {
+    auto it =
+        m_subparsers.emplace(std::cend(m_subparsers), std::piecewise_construct,
+                             std::move(args), std::make_tuple(subcommand_main));
+
+    it->first.m_parser_path = m_program_name + " " + it->first.m_program_name;
+    m_subparser_map.insert_or_assign(it->first.m_program_name, it);
+    return it->first;
   }
 
   void set_suppress(bool suppress) { m_suppress = suppress; }
@@ -2340,7 +2347,8 @@ protected:
             // invoke subparser
             m_is_parsed = true;
             m_used_subparser = *subparser_it->second;
-            return subparser_it->second->parse_args(unprocessed_arguments);
+            return subparser_it->second->first.parse_args(
+                unprocessed_arguments);
           }
 
           if (m_positional_arguments.empty()) {
@@ -2383,16 +2391,19 @@ protected:
 
         // Deal with the situation of <positional_arg1>... <positional_arg2>
         if (argument->m_num_args_range.get_min() == 1 &&
-            argument->m_num_args_range.get_max() == (std::numeric_limits<std::size_t>::max)() &&
+            argument->m_num_args_range.get_max() ==
+                (std::numeric_limits<std::size_t>::max)() &&
             positional_argument_it != std::end(m_positional_arguments) &&
-            std::next(positional_argument_it) == std::end(m_positional_arguments) &&
+            std::next(positional_argument_it) ==
+                std::end(m_positional_arguments) &&
             positional_argument_it->m_num_args_range.get_min() == 1 &&
-            positional_argument_it->m_num_args_range.get_max() == 1 ) {
+            positional_argument_it->m_num_args_range.get_max() == 1) {
           if (std::next(it) != end) {
             positional_argument_it->consume(std::prev(end), end);
             end = std::prev(end);
           } else {
-            throw std::runtime_error("Missing " + positional_argument_it->m_names.front());
+            throw std::runtime_error("Missing " +
+                                     positional_argument_it->m_names.front());
           }
         }
 
@@ -2456,7 +2467,7 @@ protected:
             // invoke subparser
             m_is_parsed = true;
             m_used_subparser = *subparser_it->second;
-            return subparser_it->second->parse_known_args_internal(
+            return subparser_it->second->first.parse_known_args_internal(
                 unprocessed_arguments);
           }
 
@@ -2521,7 +2532,8 @@ protected:
 
   using argument_it = std::list<Argument>::iterator;
   using mutex_group_it = std::vector<MutuallyExclusiveGroup>::iterator;
-  using argument_parser_it = std::list<ArgumentParser>::iterator;
+  using argument_parser_it =
+      std::list<std::pair<ArgumentParser, SubCommandMain>>::iterator;
 
   void index_argument(argument_it it) {
     for (const auto &name : std::as_const(it->m_names)) {
@@ -2541,9 +2553,11 @@ protected:
   std::list<Argument> m_optional_arguments;
   std::map<std::string, argument_it> m_argument_map;
   std::string m_parser_path;
-  std::list<ArgumentParser> m_subparsers;
+  std::list<std::pair<ArgumentParser, SubCommandMain>> m_subparsers;
   std::map<std::string, argument_parser_it, std::less<>> m_subparser_map;
-  std::optional<std::reference_wrapper<ArgumentParser>> m_used_subparser;
+  std::optional<
+      std::reference_wrapper<std::pair<ArgumentParser, SubCommandMain>>>
+      m_used_subparser;
   std::vector<MutuallyExclusiveGroup> m_mutually_exclusive_groups;
   bool m_suppress = false;
   std::size_t m_usage_max_line_width = std::numeric_limits<std::size_t>::max();
