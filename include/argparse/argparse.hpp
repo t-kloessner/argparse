@@ -1776,7 +1776,7 @@ public:
   explicit operator bool() const {
     auto arg_used = std::any_of(m_argument_map.cbegin(), m_argument_map.cend(),
                                 [](auto &it) { return it.second->m_is_used; });
-    auto subparser_used = m_used_subparser.has_value();
+    auto subparser_used = m_used_subparser != m_subparsers.end();
 
     return m_is_parsed && (arg_used || subparser_used);
   }
@@ -2044,7 +2044,7 @@ public:
   /* Getter that returns true if a subcommand is used.
    */
   auto is_subcommand_used(std::string_view subcommand_name) const {
-    if (!m_used_subparser.has_value())
+    if (m_used_subparser == m_subparsers.end())
       return false;
 
     auto it = m_subparser_map.find(subcommand_name);
@@ -2053,17 +2053,22 @@ public:
       throw std::logic_error("Not a subcommand name!");
     }
 
-    return &m_used_subparser->get().first == &it->second->first;
+    return &m_used_subparser->first == &it->second->first;
   }
 
   /* Getter that returns true if a subcommand is used.
    */
   auto is_subcommand_used(const ArgumentParser &subparser) const {
-    return m_used_subparser.has_value() &&
-           &m_used_subparser->get().first == &subparser;
+    return m_used_subparser != m_subparsers.end() &&
+           &m_used_subparser->first == &subparser;
   }
 
-  auto get_used_subcommand() const { return m_used_subparser; }
+  std::optional<std::pair<ArgumentParser&, SubCommandMain>>
+  get_used_subcommand() const {
+    if (m_used_subparser != m_subparsers.end())
+      return *m_used_subparser;
+    return std::nullopt;
+  }
 
   /* Indexing operator. Return a reference to an Argument object
    * Used in conjunction with Argument.operator== e.g., parser["foo"] == true
@@ -2455,6 +2460,8 @@ protected:
    * @throws std::runtime_error in case of any invalid argument
    */
   void parse_args_internal(const std::vector<std::string> &raw_arguments) {
+    m_used_subparser = m_subparsers.end();
+
     auto arguments = preprocess_arguments(raw_arguments);
     if (m_program_name.empty() && !arguments.empty()) {
       m_program_name = arguments.front();
@@ -2476,7 +2483,7 @@ protected:
 
             // invoke subparser
             m_is_parsed = true;
-            m_used_subparser = *subparser_it->second;
+            m_used_subparser = subparser_it->second;
             return subparser_it->second->first.parse_args(
                 unprocessed_arguments);
           }
@@ -2596,7 +2603,7 @@ protected:
 
             // invoke subparser
             m_is_parsed = true;
-            m_used_subparser = *subparser_it->second;
+            m_used_subparser = subparser_it->second;
             return subparser_it->second->first.parse_known_args_internal(
                 unprocessed_arguments);
           }
@@ -2685,9 +2692,7 @@ protected:
   std::string m_parser_path;
   std::list<std::pair<ArgumentParser, SubCommandMain>> m_subparsers;
   std::map<std::string, argument_parser_it, std::less<>> m_subparser_map;
-  std::optional<
-      std::reference_wrapper<std::pair<ArgumentParser, SubCommandMain>>>
-      m_used_subparser;
+  argument_parser_it m_used_subparser;
   std::vector<MutuallyExclusiveGroup> m_mutually_exclusive_groups;
   bool m_suppress = false;
   std::size_t m_usage_max_line_width = std::numeric_limits<std::size_t>::max();
